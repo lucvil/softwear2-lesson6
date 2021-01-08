@@ -9,12 +9,14 @@
 static const int nsymbols = 256 + 1; 
 //int symbol_count[nsymbols];
 int * symbol_count;
+ 
 
 // ノードを表す構造体
 typedef struct node
 {
   int symbol;
   int count;
+  int number[30];
   struct node *left;
   struct node *right;
 } Node;
@@ -37,7 +39,7 @@ static Node *pop_min(int *n, Node *nodep[]);
 static Node *build_tree(void);
 
 // 木を深さ優先で操作する関数
-static void traverse_tree(const int depth, const Node *np);
+static void traverse_tree(const int depth, Node *np,int haff[]);
 
 
 
@@ -52,11 +54,10 @@ static void count_symbols(const char *filename)
 
   symbol_count = (int*)calloc(nsymbols, sizeof(int));
   
-  
-  // 1Byteずつ読み込み、カウントする
-  /*
-    write a code for counting
-  */
+  int c = 0;
+  while( ( c = fgetc(fp)) != EOF){
+    symbol_count[c]++;
+  }
 
   fclose(fp);
 }
@@ -114,9 +115,8 @@ static Node *build_tree()
     // Create a new node
     // 選ばれた2つのノードを元に統合ノードを新規作成
     // 作成したノードはnodep にどうすればよいか?
-    /*
-      ???
-    */
+    
+    nodep[n++] = create_node(dummy,node1->count + node2->count,node1,node2);
 
   }
   // 気にした後は symbol_counts は free
@@ -127,12 +127,25 @@ static Node *build_tree()
 // Perform depth-first traversal of the tree
 // 深さ優先で木を走査する
 // 現状は何もしていない（再帰してたどっているだけ）
-static void traverse_tree(const int depth, const Node *np)
+static void traverse_tree(const int depth,  Node *np, int haff[])
 {			  
-  if (np->left == NULL) return;
-			  
-  traverse_tree(depth + 1, np->left);
-  traverse_tree(depth + 1, np->right);
+  if (np->left == NULL){
+    for(int i = 0; i < 30; i++){
+      np->number[i] = haff[i];
+    }
+
+    //ツリー構造表示
+    
+    return;
+  }
+
+  haff[depth] = 0;
+  traverse_tree(depth + 1, np->left, haff);
+  haff[depth] = -1;
+
+  haff[depth] = 1;
+  traverse_tree(depth + 1, np->right, haff);
+  haff[depth] = -1;
 }
 
 // この関数のみ外部 (main) で使用される (staticがついていない)
@@ -146,6 +159,12 @@ int encode(const char *filename)
     return EXIT_FAILURE;
   }
   
-  traverse_tree(0, root);
+  //ハフマン符号の記憶
+  int haff[30];
+  for( int i = 0; i < 30; i++){
+    haff[i] = -1;
+  }
+
+  traverse_tree(0, root,haff);
   return EXIT_SUCCESS;
 }

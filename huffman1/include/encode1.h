@@ -1,6 +1,6 @@
-#ifndef HUFFMAN_ENCODE_H
-#define HUFFMAN_ENCODE_H
+#ifndef HUFFMAN_ENCODE1_H
+#define HUFFMAN_ENCODE1_H
 
-int encode(const char *filename);
+int encode(const char *filename1 , const char *control);
 
 #endif

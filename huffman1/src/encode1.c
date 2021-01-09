@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <string.h>
+#include <math.h>
 #include "encode1.h"
 
 
@@ -40,6 +42,14 @@ static Node *build_tree(void);
 
 // 木を深さ優先で操作する関数
 static void traverse_tree(const int depth, Node *np,int haff[]);
+
+//ハフマン符号で圧縮する
+static void zip_huffman(const char *filename1, Node *huffman);
+
+//ハフマン符号で復元する
+//static void unzip_huffman();
+
+static void find_tree(const int depth,  Node *np, int c, int **answer);
 
 
 
@@ -208,22 +218,101 @@ static void traverse_tree(const int depth,  Node *np, int haff[])
 }
 
 // この関数のみ外部 (main) で使用される (staticがついていない)
-int encode(const char *filename)
+int encode(const char *filename1, const char *control)
 {
-  count_symbols(filename);
-  Node *root = build_tree();
+  if(strcmp(control,"zip") == 0){
+    count_symbols(filename1);
+    Node *root = build_tree();
 
-  if (root == NULL){
-    fprintf(stderr,"A tree has not been constructed.\n");
-    return EXIT_FAILURE;
-  }
+    if (root == NULL){
+      fprintf(stderr,"A tree has not been constructed.\n");
+      return EXIT_FAILURE;
+    }
   
-  //ハフマン符号の記憶
-  int haff[30];
-  for( int i = 0; i < 30; i++){
-    haff[i] = -1;
+    //ハフマン符号の記憶
+    int haff[30];
+    for( int i = 0; i < 30; i++){
+      haff[i] = -1;
+    }
+
+    traverse_tree(0, root,haff);
+    zip_huffman(filename1, root);
+  }else if( strcmp(control,"unzip") == 0){
+    //unzip_huffman();     -------------
   }
 
-  traverse_tree(0, root,haff);
+
   return EXIT_SUCCESS;
 }
+
+//
+static void zip_huffman(const char *filename1, Node *root){
+  //ファイルを開ける
+  FILE *fp;
+
+  if( (fp = fopen( filename1,"rb")) == NULL){
+    fprintf(stderr, "%sのオープンに失敗しました。\n", filename1);
+    exit(EXIT_FAILURE);
+  }
+  
+  //バイナリファイルに書き込む
+  //事前情報の書き込み
+  int c = 0;
+  int *answer = NULL;
+  char *outfilename = "sample.dat";
+  FILE *fpout;
+  if( (fpout = fopen(outfilename, "wb") ) == NULL){
+    fprintf(stderr, "%sのオープンに失敗\n", outfilename);
+    return;
+  }
+
+  int buf[8];
+  int j = 0;//bufの何個目をみているか
+
+  
+  while( ( c = fgetc(fp)) != EOF){
+    int depth = 0;
+    //answerにハフマンコードの配列の先頭ポインタを入れる
+    find_tree(depth,root,c,&answer);
+
+    int i = 0;//numberの何個目をみてるか
+    
+    
+    
+    while(answer[i] != -1){
+      buf[j] = answer[i];
+
+      if(j == 7){
+        int mass = 0;
+        for(int b = 0; b < 8; b++){
+          mass += buf[7-b] * pow(2,b);
+        }
+        unsigned char output = (unsigned char)mass;
+        fwrite(&output,sizeof(unsigned char),1,fpout);
+        j = -1;
+      }
+      i++;
+      j++;
+    }
+  } 
+  
+}
+
+//
+static void find_tree(const int depth,  Node *np, int c, int **answer)
+{	
+  if (np->left == NULL){
+    if( c == np->symbol){
+      *answer =  np->number;
+      return;
+    }else{
+      return;
+    }
+  }  
+
+  find_tree(depth + 1, np->left, c, answer);
+  find_tree(depth + 1, np->right, c, answer);
+  
+}
+
+

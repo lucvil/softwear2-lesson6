@@ -4,7 +4,7 @@ OBJS = src/main1.o src/encode1.o
 TARGET = bin/huffman1
 
 $(TARGET): $(OBJS)
-	$(CC) -o $@ $^ $(LDLIBS)
+	$(CC) -o $@ $^ $(LDLIBS)-lm
 
 .PHONY: tmpclean clean
 

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
-#include "encode.h"
+#include "encode0.h"
 
 
 // 各シンボルの数を数える為にポインタを定義

@@ -23,6 +23,13 @@ typedef struct node
   struct node *right;
 } Node;
 
+typedef struct haff
+{
+  int symbol;
+  int number[30];
+  int hafflong;
+}Haff;
+
 // このソースで有効なstatic関数のプロトタイプ宣言
 // 一方で、ヘッダファイルは外部からの参照を許す関数の宣言のみ
 
@@ -41,15 +48,19 @@ static Node *pop_min(int *n, Node *nodep[]);
 static Node *build_tree(void);
 
 // 木を深さ優先で操作する関数
-static void traverse_tree(const int depth, Node *np,int haff[]);
+static void traverse_tree(const int depth, Node *np,int haff[],int *all);
 
 //ハフマン符号で圧縮する
-static void zip_huffman(const char *filename1, Node *huffman);
+static void zip_huffman(const char *filename1, Node *huffman,int all);
 
 //ハフマン符号で復元する
 //static void unzip_huffman();
 
 static void find_tree(const int depth,  Node *np, int c, int **answer);
+
+static void symbol_tree(const int depth,  Node *np,FILE *fpout);
+
+static void unzip_huffman(FILE *fp,Haff haffman[],int all);
 
 
 
@@ -68,6 +79,8 @@ static void count_symbols(const char *filename)
   while( ( c = fgetc(fp)) != EOF){
     symbol_count[c]++;
   }
+  printf("%d",symbol_count[26]);
+  symbol_count[26] = 1; //<-EOFとして扱う　huffman1で新たに追加
 
   fclose(fp);
 }
@@ -137,9 +150,10 @@ static Node *build_tree()
 // Perform depth-first traversal of the tree
 // 深さ優先で木を走査する
 // 現状は何もしていない（再帰してたどっているだけ）
-static void traverse_tree(const int depth,  Node *np, int haff[])
+static void traverse_tree(const int depth,  Node *np, int haff[],int *all)
 {			  
   if (np->left == NULL){
+    *all += 1;
     for(int i = 0; i < 30; i++){
       np->number[i] = haff[i];
     }
@@ -176,6 +190,8 @@ static void traverse_tree(const int depth,  Node *np, int haff[])
       if(np->number[a+1] == -1){
         if(np->symbol == 10){
           printf(" \e[32m改行\e[0m");
+        }else if(np->symbol == 26){
+          printf(" \e[32mEOF\e[0m");
         }else{
           printf(" \e[32m%c\e[0m",(char)np->symbol);
         }
@@ -209,11 +225,11 @@ static void traverse_tree(const int depth,  Node *np, int haff[])
   }
 
   haff[depth] = 0;
-  traverse_tree(depth + 1, np->left, haff);
+  traverse_tree(depth + 1, np->left, haff,all);
   haff[depth] = -1;
 
   haff[depth] = 1;
-  traverse_tree(depth + 1, np->right, haff);
+  traverse_tree(depth + 1, np->right, haff,all);
   haff[depth] = -1;
 }
 
@@ -235,18 +251,56 @@ int encode(const char *filename1, const char *control)
       haff[i] = -1;
     }
 
-    traverse_tree(0, root,haff);
-    zip_huffman(filename1, root);
+    int all = 0;
+    traverse_tree(0, root,haff,&all);
+    zip_huffman(filename1, root,all);
   }else if( strcmp(control,"unzip") == 0){
-    //unzip_huffman();     -------------
-  }
+    FILE *fp = fopen(filename1,"rb");
+    if(fp == NULL){
+      fprintf(stderr, "error: cannot open %s\n", filename1);
+      exit(1);
+    }
 
+    //事前情報の取得
+    int all;
+    int binarylong;
+    fread(&all,sizeof(int),1,fp); //①シンボルの種類数
+    fread(&binarylong,sizeof(int),1,fp); //②バイナリコードに何個分のcharとしてハフマン符号をかくか
+    Haff haffman[all];
+    for(int i = 0; i < all; i++){
+      fread(&(haffman[i].symbol),sizeof(int),1,fp); //③シンボル
+      int hafflong;
+      fread(&hafflong,sizeof(int),1,fp);//④シンボルのハフマン符号の長さ
+      
+      for(int j = 0; j < 30; j++){
+        haffman[i].number[j] = -1;
+      }
+      unsigned char buf[binarylong];
+      int copy[binarylong * 8];
+      for(int j = 0; j < binarylong; j++){
+        fread(&(buf[j]),sizeof(unsigned char),1,fp);
+        for(int k = 0; k < 8; k++){
+          copy[ 8*j + k ] = buf[j]/pow(2,7-k);
+          buf[j] -= copy[ 8*j + k ] * pow(2,7-k);
+        }
+      }
+      haffman[i].hafflong = hafflong;
+      for(int j = 0; j < hafflong; j++){
+        haffman[i].number[j] = copy[j];
+      } //⑤ハフマン符号      
+    }
+
+
+    //ハフマン符号からデータを解凍する
+    unzip_huffman(fp,haffman,all);
+  }
+        
 
   return EXIT_SUCCESS;
 }
 
 //
-static void zip_huffman(const char *filename1, Node *root){
+static void zip_huffman(const char *filename1, Node *root,int all){
   //ファイルを開ける
   FILE *fp;
 
@@ -265,34 +319,76 @@ static void zip_huffman(const char *filename1, Node *root){
     fprintf(stderr, "%sのオープンに失敗\n", outfilename);
     return;
   }
+  
+  fwrite(&all,sizeof(int),1,fpout);//①シンボルの種類数
+  int binarylong = 3; 
+  fwrite(&binarylong,sizeof(int),1,fpout); //②バイナリコードに何個分のcharとしてハフマン符号をかくか
+  int depth1 = 0;
+  symbol_tree(depth1,root,fpout);//③シンボル　④シンボルのハフマン符号の長さ　⑤ハフマン符号
 
+  //本編の書き込み
   int buf[8];
   int j = 0;//bufの何個目をみているか
 
   
-  while( ( c = fgetc(fp)) != EOF){
-    int depth = 0;
-    //answerにハフマンコードの配列の先頭ポインタを入れる
-    find_tree(depth,root,c,&answer);
+  while(1){
+    c = fgetc(fp);
+    if( c != EOF){
+      int depth = 0;
+      //answerにハフマンコードの配列の先頭ポインタを入れる
+      find_tree(depth,root,c,&answer);
 
-    int i = 0;//numberの何個目をみてるか
+      int i = 0;//answerのnumberの何個目をみてるか
     
     
     
-    while(answer[i] != -1){
-      buf[j] = answer[i];
+      while(answer[i] != -1){
+        buf[j] = answer[i];
 
-      if(j == 7){
-        int mass = 0;
-        for(int b = 0; b < 8; b++){
-          mass += buf[7-b] * pow(2,b);
+        if(j == 7){
+          int mass = 0;
+          for(int b = 0; b < 8; b++){
+            mass += buf[7-b] * pow(2,b);
+          }
+          unsigned char output = (unsigned char)mass;
+          fwrite(&output,sizeof(unsigned char),1,fpout);
+          j = -1;
         }
-        unsigned char output = (unsigned char)mass;
-        fwrite(&output,sizeof(unsigned char),1,fpout);
-        j = -1;
+        i++;
+        j++;
       }
-      i++;
-      j++;
+
+    }else if(( c = fgetc(fp)) == EOF){
+      int depth = 0;
+      int Eof = 26;
+      find_tree(depth,root,Eof,&answer);
+      int i = 0;
+      while(answer[i] != -1){
+        buf[j] = answer[i];
+        if(j == 7){
+          int mass = 0;
+          for(int b = 0; b < 8; b++){
+            mass += buf[7-b] * pow(2,b);
+          }
+          unsigned char output = (unsigned char)mass;
+          fwrite(&output,sizeof(unsigned char),1,fpout);
+          j = -1;
+        }
+        i++;
+        j++;
+      }
+      //おしりの調整(EOFを入れた後一バイトの空いた部分に1を入れバイナリファイルに出力)
+      for(int k = 0; k < 8-j;k++){
+        buf[j] = 1;
+        j++;
+      }
+      int mass = 0;
+      for(int b = 0; b < 8; b++){
+        mass += buf[7-b] * pow(2,b);
+      }
+      unsigned char output = (unsigned char)mass;
+      fwrite(&output,sizeof(unsigned char),1,fpout);
+      break;
     }
   } 
   
@@ -316,3 +412,134 @@ static void find_tree(const int depth,  Node *np, int c, int **answer)
 }
 
 
+//
+static void symbol_tree(const int depth,  Node *np, FILE *fpout)
+{			  
+  if (np->left == NULL){
+    fwrite(&(np->symbol),sizeof(int),1,fpout);//③シンボル
+
+    int n = 0;
+    int i = 0;
+    while(np->number[i] != -1){
+      n++;
+      i++;
+    }
+    fwrite(&n,sizeof(int),1,fpout);//④シンボルのハフマン符号の長さ
+
+    i = 0;
+    int buf[8];
+    int j = 0; //bufのどこをみているか
+    while(i < 24){  //<-２４は②によって決まる。
+      if(np->number[i] != -1){
+        buf[j] = np->number[i];
+      }else if(np->number[i] == -1){
+        buf[j] = 0;
+      }
+      
+      if(j == 7){
+        int mass = 0;
+        for(int b = 0; b < 8; b++){
+          mass += buf[7-b] * pow(2,b);
+        }
+        unsigned char output = (unsigned char)mass;
+        fwrite(&output,sizeof(unsigned char),1,fpout);//⑤ハフマン符号(3バイト)
+        j = -1;
+      }
+      i++;
+      j++;
+    }
+    return;
+  }
+
+  symbol_tree(depth + 1, np->left, fpout);
+
+  symbol_tree(depth + 1, np->right, fpout);
+
+}
+
+
+
+static void unzip_huffman(FILE *fp,Haff haffman[],int all){
+  int buf3[32];
+  int buf2[8];
+  char buf1;
+  //最初にbuf3を埋めておく
+  for(int i = 0; i < 4; i++){
+    fread(&(buf1),sizeof(unsigned char),1,fp);
+    for(int k = 0; k < 8; k++){
+      buf2[k] = buf1/pow(2,7-k);
+      buf1 -= buf2[k] * pow(2,7-k);
+    }
+    for(int k = 0; k < 8; k++){
+      buf3[8*i + k] = buf2[k];
+    }
+  }
+
+  int end = 31; //buf3の終わりはどこか
+
+  //出力用のファイルを開いておく
+  FILE *fpout;
+  char *outfilename = "sample.txt"; 
+  if( (fpout = fopen(outfilename, "w") ) == NULL){
+    fprintf(stderr, "%sのオープンに失敗\n", outfilename);
+    return;
+  }
+
+  while(1){
+    //buf3の補充
+    if(end <= 23){
+      int c = fread(&(buf1),sizeof(unsigned char),1,fp);
+      if(c != 0){
+        for(int k = 0; k < 8; k++){
+          buf2[k] = buf1/pow(2,7-k);
+          buf1 -= buf2[k] * pow(2,7-k);
+        }
+        for(int k = 0; k < 8; k++){
+          buf3[end + 1 + k] = buf2[k];
+        } 
+        end += 8;
+      }
+    }
+
+    //解凍
+    int c;
+    int check2 = 0;
+    int ilong;
+    for(int i = 0; i < 30; i++){//haffmanの文字の多さ
+      for(int j = 0; j < all;j++){//haffmanの番号
+        if(haffman[j].hafflong == i+1){
+          int check = 1;
+          for(int k = 0; k <= i;k++){//haffmanのnumberの番号
+            if(haffman[j].number[k] != buf3[k]){
+              check = 0;
+            }
+          }
+          if(check == 1){
+            c = haffman[j].symbol;
+            ilong = i+1;
+            check2 = 1;
+            break;
+          }
+        }
+      }
+      if(check2 == 1){
+        check2 =0;
+        break;
+      }
+    }
+
+    if( c != 26){
+      fputc(c,fpout);
+    }else if(c == 26){
+      break;
+    }
+
+    //buf3の文字数の調整
+    for(int i = ilong;i <= end;i++){
+      buf3[i-ilong] = buf3[i];
+    }
+    end = end - ilong;
+
+  }
+
+}

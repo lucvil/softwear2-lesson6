@@ -290,7 +290,17 @@ int encode(const char *filename1, const char *control)
       } //⑤ハフマン符号      
     }
 
-
+    /*事前情報確認用
+    for(int i = 0; i < all; i++){
+      printf("haff.symbol: %c",haffman[i].symbol);
+      printf("haff.hafflong: %d",haffman[i].hafflong);
+      printf("haff");
+      for(int j = 0; j < haffman[i].hafflong;j++){
+        printf("%d",haffman[i].number[j]);
+      }
+      printf("\n");
+    }
+    */
     //ハフマン符号からデータを解凍する
     unzip_huffman(fp,haffman,all);
   }
@@ -462,7 +472,7 @@ static void symbol_tree(const int depth,  Node *np, FILE *fpout)
 static void unzip_huffman(FILE *fp,Haff haffman[],int all){
   int buf3[32];
   int buf2[8];
-  char buf1;
+  unsigned char buf1;
   //最初にbuf3を埋めておく
   for(int i = 0; i < 4; i++){
     fread(&(buf1),sizeof(unsigned char),1,fp);
